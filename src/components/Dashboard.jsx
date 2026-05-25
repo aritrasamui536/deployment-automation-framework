@@ -1,20 +1,5 @@
-import { useState, useEffect } from "react";
-
-const metrics = [
-  { label: "Total Deployments", value: 1284, suffix: "", delta: "+12%", up: true, color: "#3b82f6" },
-  { label: "Success Rate", value: 98.4, suffix: "%", delta: "+0.6%", up: true, color: "#22c55e" },
-  { label: "Avg Deploy Time", value: 43, suffix: "s", delta: "-8s", up: true, color: "#a78bfa" },
-  { label: "Active Pipelines", value: 7, suffix: "", delta: "+2", up: true, color: "#f59e0b" },
-];
-
-const deployments = [
-  { id: "d-0091", repo: "frontend/web-app", branch: "main", status: "success", time: "2m ago", env: "production" },
-  { id: "d-0090", repo: "api/gateway", branch: "release/v3.2", status: "running", time: "5m ago", env: "staging" },
-  { id: "d-0089", repo: "services/auth", branch: "hotfix/token", status: "failed", time: "18m ago", env: "production" },
-  { id: "d-0088", repo: "infra/k8s-config", branch: "main", status: "success", time: "34m ago", env: "production" },
-  { id: "d-0087", repo: "frontend/admin", branch: "develop", status: "success", time: "1h ago", env: "staging" },
-  { id: "d-0086", repo: "api/payments", branch: "main", status: "success", time: "2h ago", env: "production" },
-];
+import { useState, useEffect, useCallback } from "react";
+import { getDeployments, getStats } from "../services/api";
 
 const pipelines = [
   { name: "CI/CD Main", runs: 340, health: 99 },
@@ -51,26 +36,55 @@ function AnimatedNumber({ target, suffix }) {
   return <span>{val}{suffix}</span>;
 }
 
-export default function Dashboard({ addToast }) {
+export default function Dashboard({ addToast, onNewDeployment, onViewDeployment, onViewLogs }) {
   const [activeRow, setActiveRow] = useState(null);
   const [isDark, setIsDark] = useState(true);
+  const [deployments, setDeployments] = useState([]);
+  const [stats, setStats] = useState({ total: 0, success: 0, failed: 0, running: 0, successRate: "0%" });
+  const [loading, setLoading] = useState(true);
+  const [lastRefresh, setLastRefresh] = useState(new Date());
+  const [filterStatus, setFilterStatus] = useState("all");
+  const [filterEnv, setFilterEnv] = useState("all");
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
-    const update = () => {
-      setIsDark(document.documentElement.getAttribute('data-theme') !== 'light');
-    };
+    const update = () => setIsDark(document.documentElement.getAttribute("data-theme") !== "light");
     const observer = new MutationObserver(update);
     observer.observe(document.documentElement, { attributes: true });
     update();
     return () => observer.disconnect();
   }, []);
 
-  const handleRowClick = (d) => {
-    if (!addToast) return;
-    if (d.status === "success") addToast(`${d.repo} — deployment successful`, "success");
-    else if (d.status === "failed") addToast(`${d.repo} — deployment failed`, "error");
-    else if (d.status === "running") addToast(`${d.repo} — deployment in progress`, "info");
-  };
+  const fetchData = useCallback(() => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    Promise.all([getDeployments(token), getStats(token)]).then(([deps, st]) => {
+      if (Array.isArray(deps)) setDeployments(deps);
+      if (st && st.total !== undefined) setStats(st);
+      setLoading(false);
+      setLastRefresh(new Date());
+    });
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchData]);
+
+  const filtered = deployments.filter(d => {
+    const matchStatus = filterStatus === "all" || d.status === filterStatus;
+    const matchEnv = filterEnv === "all" || d.environment === filterEnv;
+    const matchSearch = search === "" || d.app.toLowerCase().includes(search.toLowerCase()) || d.branch.toLowerCase().includes(search.toLowerCase());
+    return matchStatus && matchEnv && matchSearch;
+  });
+
+  const metrics = [
+    { label: "Total Deployments", value: stats.total, suffix: "", delta: "+12%", up: true, color: "#3b82f6" },
+    { label: "Success Rate", value: parseFloat(stats.successRate) || 0, suffix: "%", delta: "+0.6%", up: true, color: "#22c55e" },
+    { label: "Failed", value: stats.failed, suffix: "", delta: "", up: false, color: "#ef4444" },
+    { label: "Active Pipelines", value: stats.running, suffix: "", delta: "", up: true, color: "#f59e0b" },
+  ];
 
   const t = {
     bg: isDark ? "#0a0c10" : "#f1f5f9",
@@ -83,170 +97,161 @@ export default function Dashboard({ addToast }) {
     tableHeader: isDark ? "#475569" : "#94a3b8",
     tableRow: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.01)",
     gridLine: isDark ? "rgba(255,255,255,0.015)" : "rgba(0,0,0,0.04)",
+    inputBg: isDark ? "rgba(255,255,255,0.05)" : "#f8fafc",
+    inputBorder: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.12)",
+  };
+
+  const selectStyle = {
+    background: t.inputBg, border: `1px solid ${t.inputBorder}`, borderRadius: "6px",
+    padding: "0.4rem 0.7rem", color: t.text, fontFamily: "inherit",
+    fontSize: "0.65rem", letterSpacing: "0.06em", cursor: "pointer", outline: "none",
   };
 
   return (
     <div style={{
-      minHeight: "100vh",
-      background: t.bg,
-      color: t.text,
+      minHeight: "100vh", background: t.bg, color: t.text,
       fontFamily: "'IBM Plex Mono', 'Fira Code', monospace",
-      padding: "2.5rem 2rem",
-      boxSizing: "border-box",
-      transition: "background 0.3s, color 0.3s",
-      backgroundImage: isDark ? `
-        radial-gradient(ellipse 80% 40% at 50% -10%, rgba(59,130,246,0.08) 0%, transparent 70%),
-        linear-gradient(${t.gridLine} 1px, transparent 1px),
-        linear-gradient(90deg, ${t.gridLine} 1px, transparent 1px)
-      ` : `
-        linear-gradient(${t.gridLine} 1px, transparent 1px),
-        linear-gradient(90deg, ${t.gridLine} 1px, transparent 1px)
-      `,
-      backgroundSize: isDark ? "100% 100%, 48px 48px, 48px 48px" : "48px 48px, 48px 48px",
+      padding: "2.5rem 2rem", boxSizing: "border-box",
     }}>
-
-      {/* Header */}
       <div style={{ marginBottom: "2.5rem", display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
         <div>
-          <div style={{ fontSize: "0.65rem", letterSpacing: "0.2em", color: "#3b82f6", marginBottom: "0.4rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-            <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "#22c55e", boxShadow: "0 0 8px #22c55e" }} />
+          <div style={{ fontSize: "0.65rem", letterSpacing: "0.2em", color: "#3b82f6", marginBottom: "0.4rem" }}>
             DEVOPS AUTOMATION REFERENCE 2025
           </div>
-          <h1 style={{ fontSize: "clamp(1.4rem, 3vw, 2.2rem)", fontWeight: 700, margin: 0, letterSpacing: "-0.02em", color: t.text }}>
+          <h1 style={{ fontSize: "clamp(1.4rem, 3vw, 2.2rem)", fontWeight: 700, margin: 0, color: t.text }}>
             Deployment Dashboard
           </h1>
         </div>
-        <div style={{ fontSize: "0.7rem", color: t.subtext, letterSpacing: "0.08em" }}>
-          LAST UPDATED — {new Date().toLocaleTimeString()}
+        <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+          <div style={{ fontSize: "0.65rem", color: t.subtext }}>
+            LAST UPDATED � {lastRefresh.toLocaleTimeString()} <span style={{ color: "#22c55e" }}>? AUTO</span>
+          </div>
+          <button onClick={onNewDeployment} style={{
+            background: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px",
+            padding: "0.5rem 1.1rem", fontSize: "0.7rem", cursor: "pointer", fontFamily: "inherit", fontWeight: 600,
+          }}>+ NEW DEPLOYMENT</button>
         </div>
       </div>
 
-      {/* Metric Cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
         {metrics.map((m) => (
           <div key={m.label} style={{
-            background: t.cardBg,
-            border: `1px solid ${t.cardBorder}`,
-            borderTop: `2px solid ${m.color}`,
-            borderRadius: "8px",
-            padding: "1.25rem 1.5rem",
-            position: "relative",
-            overflow: "hidden",
-            transition: "transform 0.2s, box-shadow 0.2s, background 0.3s",
-            boxSizing: "border-box",
-            cursor: "pointer",
-            boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.06)",
+            background: t.cardBg, border: `1px solid ${t.cardBorder}`, borderTop: `2px solid ${m.color}`,
+            borderRadius: "8px", padding: "1.25rem 1.5rem", cursor: "pointer", transition: "transform 0.2s",
           }}
-            onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = `0 8px 32px ${m.color}22`; }}
-            onMouseLeave={e => { e.currentTarget.style.transform = "none"; e.currentTarget.style.boxShadow = isDark ? "none" : "0 1px 4px rgba(0,0,0,0.06)"; }}
-            onClick={() => addToast && addToast(`${m.label}: ${m.value}${m.suffix}`, "info")}
+            onMouseEnter={e => e.currentTarget.style.transform = "translateY(-2px)"}
+            onMouseLeave={e => e.currentTarget.style.transform = "none"}
           >
             <div style={{ fontSize: "0.6rem", letterSpacing: "0.12em", color: t.subtext, marginBottom: "0.75rem" }}>{m.label.toUpperCase()}</div>
             <div style={{ fontSize: "2rem", fontWeight: 700, color: t.text, lineHeight: 1 }}>
               <AnimatedNumber target={m.value} suffix={m.suffix} />
             </div>
-            <div style={{ marginTop: "0.5rem", fontSize: "0.7rem", color: m.up ? "#22c55e" : "#ef4444" }}>
-              {m.up ? "▲" : "▼"} {m.delta} this week
-            </div>
+            {m.delta && (
+              <div style={{ marginTop: "0.5rem", fontSize: "0.7rem", color: m.up ? "#22c55e" : "#ef4444" }}>
+                {m.up ? "?" : "?"} {m.delta} this week
+              </div>
+            )}
           </div>
         ))}
       </div>
 
-      {/* Bottom Grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 280px", gap: "1rem", alignItems: "start" }}>
+      {loading ? (
+        <div style={{ textAlign: "center", color: t.subtext, padding: "3rem" }}>Loading...</div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 280px", gap: "1rem", alignItems: "start" }}>
+          <div style={{ background: t.tableBg, border: `1px solid ${t.cardBorder}`, borderRadius: "8px", overflow: "hidden" }}>
 
-        {/* Recent Deployments Table */}
-        <div style={{ background: t.tableBg, border: `1px solid ${t.cardBorder}`, borderRadius: "8px", overflow: "hidden", minWidth: 0, boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.06)", transition: "background 0.3s" }}>
-          <div style={{ padding: "1.2rem 1.5rem", borderBottom: `1px solid ${t.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: "0.7rem", letterSpacing: "0.12em", color: t.tableHeader }}>RECENT DEPLOYMENTS</span>
-            <span style={{ fontSize: "0.65rem", color: "#3b82f6", cursor: "pointer", whiteSpace: "nowrap" }}>VIEW ALL →</span>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "70px 1fr 130px 100px 90px", padding: "0.6rem 1.5rem", fontSize: "0.6rem", letterSpacing: "0.1em", color: t.tableHeader, borderBottom: `1px solid ${t.cardBorder}` }}>
-            <span>ID</span>
-            <span>REPOSITORY</span>
-            <span>BRANCH</span>
-            <span>ENV</span>
-            <span>STATUS</span>
-          </div>
-
-          {deployments.map((d, i) => (
-            <div key={d.id}
-              onMouseEnter={() => setActiveRow(i)}
-              onMouseLeave={() => setActiveRow(null)}
-              onClick={() => handleRowClick(d)}
-              style={{
-                display: "grid",
-                gridTemplateColumns: "70px 1fr 130px 100px 90px",
-                padding: "0.9rem 1.5rem",
-                fontSize: "0.72rem",
-                borderBottom: `1px solid ${t.tableRow}`,
-                background: activeRow === i ? t.tableHover : "transparent",
-                transition: "background 0.15s",
-                alignItems: "center",
-                minWidth: 0,
-                cursor: "pointer",
-              }}>
-              <span style={{ color: t.subtext }}>{d.id}</span>
-              <div style={{ minWidth: 0 }}>
-                <div style={{ color: t.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.repo}</div>
-                <div style={{ fontSize: "0.6rem", color: t.subtext, marginTop: "0.15rem" }}>{d.time}</div>
-              </div>
-              <span style={{ color: t.subtext, fontSize: "0.65rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.branch}</span>
-              <span style={{
-                fontSize: "0.6rem", padding: "0.2rem 0.5rem", borderRadius: "4px",
-                background: d.env === "production" ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)",
-                color: d.env === "production" ? "#fca5a5" : "#93c5fd",
-                display: "inline-block", letterSpacing: "0.05em", width: "fit-content",
-              }}>{d.env}</span>
-              <span style={{
-                fontSize: "0.6rem", padding: "0.2rem 0.55rem", borderRadius: "4px",
-                background: statusBg(d.status), color: statusColor(d.status),
-                display: "inline-flex", alignItems: "center", gap: "0.3rem", width: "fit-content",
-              }}>
-                {d.status === "running" && (
-                  <span style={{ display: "inline-block", width: 5, height: 5, borderRadius: "50%", background: "#3b82f6", animation: "pulse 1.2s infinite" }} />
+            <div style={{ padding: "1rem 1.5rem", borderBottom: `1px solid ${t.cardBorder}`, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: "0.75rem" }}>
+              <span style={{ fontSize: "0.7rem", letterSpacing: "0.12em", color: t.tableHeader }}>RECENT DEPLOYMENTS</span>
+              <div style={{ display: "flex", gap: "0.5rem", alignItems: "center", flexWrap: "wrap" }}>
+                <input
+                  placeholder="Search app / branch..."
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  style={{ ...selectStyle, padding: "0.4rem 0.8rem", width: "160px" }}
+                />
+                <select style={selectStyle} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+                  <option value="all">All Status</option>
+                  <option value="success">Success</option>
+                  <option value="running">Running</option>
+                  <option value="failed">Failed</option>
+                  <option value="pending">Pending</option>
+                </select>
+                <select style={selectStyle} value={filterEnv} onChange={e => setFilterEnv(e.target.value)}>
+                  <option value="all">All Envs</option>
+                  <option value="production">Production</option>
+                  <option value="staging">Staging</option>
+                  <option value="development">Development</option>
+                </select>
+                {(filterStatus !== "all" || filterEnv !== "all" || search) && (
+                  <button onClick={() => { setFilterStatus("all"); setFilterEnv("all"); setSearch(""); }}
+                    style={{ ...selectStyle, color: "#ef4444", borderColor: "rgba(239,68,68,0.3)", cursor: "pointer" }}>
+                    ? CLEAR
+                  </button>
                 )}
-                {d.status}
-              </span>
+              </div>
             </div>
-          ))}
-        </div>
 
-        {/* Pipeline Health */}
-        <div style={{ background: t.tableBg, border: `1px solid ${t.cardBorder}`, borderRadius: "8px", overflow: "hidden", boxShadow: isDark ? "none" : "0 1px 4px rgba(0,0,0,0.06)", transition: "background 0.3s" }}>
-          <div style={{ padding: "1.2rem 1.5rem", borderBottom: `1px solid ${t.cardBorder}` }}>
-            <span style={{ fontSize: "0.7rem", letterSpacing: "0.12em", color: t.tableHeader }}>PIPELINE HEALTH</span>
-          </div>
-          <div style={{ padding: "1.2rem 1.5rem", display: "flex", flexDirection: "column", gap: "1.4rem" }}>
-            {pipelines.map((p) => (
-              <div key={p.name}
-                style={{ cursor: "pointer" }}
-                onClick={() => addToast && addToast(`${p.name} — ${p.health}% health`, p.health >= 98 ? "success" : p.health >= 90 ? "warning" : "error")}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px 90px 80px", padding: "0.6rem 1.5rem", fontSize: "0.6rem", letterSpacing: "0.1em", color: t.tableHeader, borderBottom: `1px solid ${t.cardBorder}` }}>
+              <span>APP</span><span>BRANCH</span><span>ENV</span><span>STATUS</span><span>LOGS</span>
+            </div>
+
+            {filtered.length === 0 ? (
+              <div style={{ padding: "2rem", textAlign: "center", color: t.subtext, fontSize: "0.8rem" }}>
+                {deployments.length === 0 ? "No deployments yet" : "No results found"}
+              </div>
+            ) : filtered.map((d, i) => (
+              <div key={d._id}
+                onMouseEnter={() => setActiveRow(i)}
+                onMouseLeave={() => setActiveRow(null)}
+                style={{ display: "grid", gridTemplateColumns: "1fr 120px 100px 90px 80px", padding: "0.9rem 1.5rem", fontSize: "0.72rem", borderBottom: `1px solid ${t.tableRow}`, background: activeRow === i ? t.tableHover : "transparent", cursor: "pointer", alignItems: "center" }}
+                onClick={() => onViewDeployment && onViewDeployment(d)}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.72rem" }}>
-                  <span style={{ color: t.text }}>{p.name}</span>
-                  <span style={{ color: p.health >= 98 ? "#22c55e" : p.health >= 90 ? "#f59e0b" : "#ef4444", fontWeight: 700 }}>{p.health}%</span>
+                <div>
+                  <div style={{ color: t.text }}>{d.app}</div>
+                  <div style={{ fontSize: "0.6rem", color: t.subtext }}>{new Date(d.createdAt).toLocaleTimeString()}</div>
                 </div>
-                <div style={{ height: 5, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)", borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{
-                    height: "100%", width: `${p.health}%`,
-                    background: p.health >= 98 ? "#22c55e" : p.health >= 90 ? "#f59e0b" : "#ef4444",
-                    borderRadius: 3, transition: "width 1s ease",
-                    boxShadow: `0 0 8px ${p.health >= 98 ? "#22c55e" : p.health >= 90 ? "#f59e0b" : "#ef4444"}88`,
-                  }} />
-                </div>
-                <div style={{ fontSize: "0.6rem", color: t.subtext, marginTop: "0.35rem" }}>{p.runs} runs this month</div>
+                <span style={{ color: t.subtext, fontSize: "0.65rem" }}>{d.branch}</span>
+                <span style={{ fontSize: "0.6rem", padding: "0.2rem 0.5rem", borderRadius: "4px", background: d.environment === "production" ? "rgba(239,68,68,0.1)" : "rgba(59,130,246,0.1)", color: d.environment === "production" ? "#fca5a5" : "#93c5fd", width: "fit-content" }}>{d.environment}</span>
+                <span style={{ fontSize: "0.6rem", padding: "0.2rem 0.55rem", borderRadius: "4px", background: statusBg(d.status), color: statusColor(d.status), width: "fit-content" }}>
+                  {d.status}
+                </span>
+                <button
+                  onClick={e => { e.stopPropagation(); onViewLogs && onViewLogs(d); }}
+                  style={{
+                    background: "rgba(59,130,246,0.1)", border: "1px solid rgba(59,130,246,0.25)",
+                    borderRadius: "4px", color: "#3b82f6", fontSize: "0.58rem", padding: "0.2rem 0.45rem",
+                    cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.06em", width: "fit-content",
+                  }}
+                >
+                  LOGS
+                </button>
               </div>
             ))}
           </div>
-        </div>
-      </div>
 
-      <style>{`
-        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-        * { box-sizing: border-box; }
-      `}</style>
+          <div style={{ background: t.tableBg, border: `1px solid ${t.cardBorder}`, borderRadius: "8px", overflow: "hidden" }}>
+            <div style={{ padding: "1.2rem 1.5rem", borderBottom: `1px solid ${t.cardBorder}` }}>
+              <span style={{ fontSize: "0.7rem", letterSpacing: "0.12em", color: t.tableHeader }}>PIPELINE HEALTH</span>
+            </div>
+            <div style={{ padding: "1.2rem 1.5rem", display: "flex", flexDirection: "column", gap: "1.4rem" }}>
+              {pipelines.map((p) => (
+                <div key={p.name}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "0.5rem", fontSize: "0.72rem" }}>
+                    <span style={{ color: t.text }}>{p.name}</span>
+                    <span style={{ color: p.health >= 98 ? "#22c55e" : "#f59e0b", fontWeight: 700 }}>{p.health}%</span>
+                  </div>
+                  <div style={{ height: 5, background: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.08)", borderRadius: 3, overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${p.health}%`, background: p.health >= 98 ? "#22c55e" : "#f59e0b", borderRadius: 3 }} />
+                  </div>
+                  <div style={{ fontSize: "0.6rem", color: t.subtext, marginTop: "0.35rem" }}>{p.runs} runs this month</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{`* { box-sizing: border-box; }`}</style>
     </div>
   );
 }
