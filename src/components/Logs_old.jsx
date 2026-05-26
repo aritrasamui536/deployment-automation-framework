@@ -1,4 +1,4 @@
-ï»¿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getLogs } from "../services/api";
 
 const levelColor = { info: "#3b82f6", success: "#22c55e", error: "#ef4444", warn: "#f59e0b" };
@@ -70,14 +70,14 @@ export default function Logs({ deploymentId = null, deploymentName = null }) {
       <div style={{ marginBottom: "2rem", display: "flex", alignItems: "flex-end", justifyContent: "space-between", flexWrap: "wrap", gap: "1rem" }}>
         <div>
           <div style={{ fontSize: "0.65rem", letterSpacing: "0.2em", color: "#3b82f6", marginBottom: "0.4rem" }}>
-            DEVOPS AUTOMATION | LOGS
+            DEVOPS AUTOMATION — LOGS
           </div>
           <h1 style={{ fontSize: "clamp(1.2rem, 3vw, 1.8rem)", fontWeight: 700, margin: 0, color: t.text }}>
-            {deploymentName ? `Logs | ${deploymentName}` : "All Deployment Logs"}
+            {deploymentName ? `Logs — ${deploymentName}` : "All Deployment Logs"}
           </h1>
         </div>
         <div style={{ fontSize: "0.65rem", color: t.subtext }}>
-          LAST UPDATED | {lastRefresh.toLocaleTimeString()} <span style={{ color: "#22c55e" }}>âœ“ AUTO</span>
+          LAST UPDATED — {lastRefresh.toLocaleTimeString()} <span style={{ color: "#22c55e" }}>? AUTO</span>
         </div>
       </div>
 
@@ -116,7 +116,7 @@ export default function Logs({ deploymentId = null, deploymentName = null }) {
           <div style={{ padding: "3rem", textAlign: "center", color: t.subtext }}>Loading logs...</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: "3rem", textAlign: "center", color: t.subtext, fontSize: "0.8rem" }}>
-            {logs.length === 0 ? "No logs yet â€” create a deployment to generate logs." : "No results found."}
+            {logs.length === 0 ? "No logs yet — create a deployment to generate logs." : "No results found."}
           </div>
         ) : (
           <div style={{ fontFamily: "monospace" }}>

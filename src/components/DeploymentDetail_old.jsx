@@ -1,4 +1,4 @@
-﻿import { useState } from "react";
+import { useState } from "react";
 import { deleteDeployment } from "../services/api";
 
 export default function DeploymentDetail({ deployment, onClose, onDeleted, addToast }) {

@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { getDeployments, getStats } from "../services/api";
 
 const pipelines = [
@@ -124,7 +124,7 @@ export default function Dashboard({ addToast, onNewDeployment, onViewDeployment,
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
           <div style={{ fontSize: "0.65rem", color: t.subtext }}>
-            LAST UPDATED | {lastRefresh.toLocaleTimeString()} <span style={{ color: "#22c55e" }}>✓ AUTO</span>
+            LAST UPDATED � {lastRefresh.toLocaleTimeString()} <span style={{ color: "#22c55e" }}>? AUTO</span>
           </div>
           <button onClick={onNewDeployment} style={{
             background: "#3b82f6", color: "#fff", border: "none", borderRadius: "6px",
